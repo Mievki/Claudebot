@@ -1,0 +1,19 @@
+[Unit]
+Description=TEMA bot Telegram command listener (/status /trades /equity /off /on /stop)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=temabot
+WorkingDirectory=/opt/tema-bot/tema-bot
+ExecStart=/opt/tema-bot/venv/bin/python telegram_bot.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tema-bot/tema-bot/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

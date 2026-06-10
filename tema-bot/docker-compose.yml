@@ -1,7 +1,0 @@
-services:
-  tema-bot:
-    build: .
-    restart: unless-stopped          # herstart automatisch bij crash/herstart server
-    env_file: .env
-    volumes:
-      - ./data:/app/data             # state + trades blijven bewaard buiten de container

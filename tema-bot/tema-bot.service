@@ -1,8 +1,0 @@
-[Unit]
-Description=TEMA daily trading bot (one shot)
-After=network-online.target
-
-[Service]
-Type=oneshot
-WorkingDirectory=/opt/tema-bot
-ExecStart=/opt/tema-bot/venv/bin/python bot.py once

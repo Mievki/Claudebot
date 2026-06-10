@@ -1,0 +1,16 @@
+[Unit]
+Description=TEMA daily trading bot (one decision per day)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=temabot
+WorkingDirectory=/opt/tema-bot/tema-bot
+ExecStart=/opt/tema-bot/venv/bin/python bot.py once
+# Hardening: alleen data/ is schrijfbaar, geen privilege-escalatie
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tema-bot/tema-bot/data
+PrivateTmp=true

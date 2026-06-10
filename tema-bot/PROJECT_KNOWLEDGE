@@ -109,11 +109,16 @@ tema-bot/
   config.py        all settings via .env (code and secrets separated)
   indicators.py    TEMA/CMO/ATR/realized_vol — MUST exactly match the backtest
   strategy.py      pure decide() -> ENTER / EXIT / HOLD (no IO, unit-testable)
-  okx_client.py    OKX REST for SPOT: candles, ticker, balance, market order
-  broker.py        PaperBroker (local sim) and OkxBroker (demo/live)
-  storage.py       state.json (position + equity) + trades.csv
-  bot.py           orchestration: `once` (cron) / `run` (loop) / `stop`
+  okx_client.py    OKX REST for SPOT: candles (paginated), ticker, balance, orders, fills
+  broker.py        PaperBroker (local sim) and OkxBroker (demo/live, real fill/fee data)
+  storage.py       state.json (position + equity) + trades.csv + cross-process lock
+  bot.py           orchestration: `once` (systemd timer) / `run` (loop) / `stop`
+  telegram_bot.py  notify() on trade events + whitelisted command listener
+                   (/status /trades /equity /off /on /stop=panic exit)
   status_cli.py    quick view of state + last trades
+  tests/           parity vs backtest notebook, full backtest replay through
+                   decide(), strategy/broker/telegram unit tests (30 tests)
+  deploy/          systemd units (daily timer + telegram listener) + install.sh
 Critical invariants:
 
 Indicator formulas in indicators.py are verified bit-for-bit identical to the
@@ -126,6 +131,9 @@ Safety gates: OkxBroker refuses live unless ALLOW_LIVE=1, and stops if equity
 exceeds MAX_LIVE_EQUITY.
 
 Candles: use OKX bar 1Dutc; only act on CONFIRMED (closed) candles (confirm==1).
+Warmup: ewm(adjust=False) is start-dependent. HIST_BARS=1200 (measured: 400 bars
+gives ~$118 TEMA error vs the backtest's full history; 1200 gives <$0.001 and an
+identical entry signal over the last 365 days — see tests/test_parity.py).
 
 7. Deployment plan (phased, safety first)
 

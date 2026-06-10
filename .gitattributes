@@ -1,0 +1,4 @@
+# Server-bestanden moeten LF houden, ook op een Windows-checkout
+*.sh      text eol=lf
+*.service text eol=lf
+*.timer   text eol=lf
