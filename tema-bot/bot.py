@@ -35,6 +35,12 @@ def run_once():
 
     decision, pos = decide(closes, highs, lows, pos)
     act = decision["action"]
+    # Kill-switch (Telegram /off of /stop): geen NIEUWE entries; een open positie
+    # behoudt haar trailing stop, dus EXIT blijft altijd toegestaan.
+    if act == "ENTER" and not st.get("trading_enabled", True):
+        act = "HOLD"
+        decision = {**decision, "action": "HOLD",
+                    "reason": "ENTER-signaal onderdrukt: trading staat uit (/on om te hervatten)"}
     print(f"[{S.now_iso()}] price={price:.0f} TEMA={decision['tema']:.0f} "
           f"CMO={decision['cmo']:.1f} ATR={decision['atr']:.0f} "
           f"vol={decision['vol']*100:.1f}% -> {act} ({decision['reason']})")

@@ -1,7 +1,10 @@
 """Centrale configuratie. Alles via .env zodat code en geheimen gescheiden blijven."""
 import os
 from dotenv import load_dotenv
-load_dotenv()
+
+# .env naast deze module laden (niet cwd), zodat het ook onder systemd/tests werkt.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_HERE, ".env"))
 
 # ---- Strategie (MOET exact je gevalideerde backtest matchen) ----
 INST_ID     = os.getenv("INST_ID", "BTC-USDT")   # SPOT pair, long-only
@@ -24,14 +27,15 @@ HIST_BARS   = int(os.getenv("HIST_BARS", "1200"))      # TEMA120-warmup: ewm is 
 # live  = echt geld (vereist ALLOW_LIVE=1)
 MODE         = os.getenv("MODE", "paper").lower()
 START_EQUITY = float(os.getenv("START_EQUITY", "1000"))
-PAPER_FEE    = float(os.getenv("PAPER_FEE", "0.001"))      # 0,1% per kant (paper)
-PAPER_SLIP   = float(os.getenv("PAPER_SLIP", "0.0005"))    # 0,05% slippage (paper)
+PAPER_FEE    = float(os.getenv("PAPER_FEE", "0.002"))      # 0,2% per kant — zoals backtest
+PAPER_SLIP   = float(os.getenv("PAPER_SLIP", "0.001"))     # 0,1% slippage — zoals backtest
+# NB: paper rekent slippage op BEIDE kanten; de backtest alleen op stop-exits.
+# Paper is dus iets conservatiever dan de backtest — bewust zo gelaten.
 ALLOW_LIVE   = os.getenv("ALLOW_LIVE", "0") == "1"          # veiligheidsslot
 MAX_LIVE_EQUITY = float(os.getenv("MAX_LIVE_EQUITY", "100"))# harde cap op live-inzet
 
 # ---- Paden ----
 # Default naast deze module (niet cwd), zodat bot/tests/systemd dezelfde data zien.
-_HERE       = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR    = os.getenv("DATA_DIR", os.path.join(_HERE, "data"))
 STATE_JSON  = os.path.join(DATA_DIR, "state.json")
 TRADES_CSV  = os.path.join(DATA_DIR, "trades.csv")

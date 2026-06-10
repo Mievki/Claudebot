@@ -8,7 +8,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from urllib.parse import urlencode
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 BASE_URL   = os.getenv("BASE_URL", "https://www.okx.com").rstrip("/")
 API_KEY    = os.getenv("OKX_API_KEY", "")
@@ -73,10 +73,29 @@ def _request(method, path, params=None, data=None, private=False):
 
 # ---- Public ----
 def candles(inst_id, bar="1Dutc", limit=300):
-    """Geeft GESLOTEN candles, oud->nieuw, als lijst [ts,o,h,l,c]. confirm==1 => gesloten."""
-    raw = _request("GET", "/api/v5/market/candles",
-                   params={"instId": inst_id, "bar": bar, "limit": str(limit)})
-    rows = [r for r in raw if len(r) < 9 or r[8] == "1"]      # alleen bevestigde bars
+    """Geeft GESLOTEN candles, oud->nieuw, als lijst dicts [ts,o,h,l,c].
+       Pagineert met `after` (= ouder dan ts): eerst /market/candles (max 300/pagina,
+       bewaart ~1440 recente bars), daarna /market/history-candles (max 100/pagina).
+       Nodig omdat TEMA(120) >= ~1200 bars warmup vereist (zie tests/test_parity.py)."""
+    raw = []                       # nieuw -> oud, zoals OKX levert
+    after = None
+    for path, page_max in (("/api/v5/market/candles", 300),
+                           ("/api/v5/market/history-candles", 100)):
+        while len(raw) < limit + 1:                            # +1: nieuwste kan onbevestigd zijn
+            params = {"instId": inst_id, "bar": bar, "limit": str(page_max)}
+            if after is not None:
+                params["after"] = str(after)
+            page = _request("GET", path, params=params)
+            if not page:
+                break                                          # endpoint uitgeput -> volgende
+            if raw and int(page[0][0]) >= int(raw[-1][0]):
+                raise RuntimeError("OKX paginatie niet strikt aflopend; afgebroken")
+            raw.extend(page)
+            after = raw[-1][0]                                 # oudste ts tot nu toe
+        if len(raw) >= limit + 1:
+            break
+    rows = [r for r in raw if len(r) < 9 or r[8] == "1"]       # alleen bevestigde bars
+    rows = rows[:limit]                                        # nieuwste `limit` stuks
     rows = list(reversed(rows))                                # oud -> nieuw
     return [{"ts": int(r[0]), "o": float(r[1]), "h": float(r[2]),
              "l": float(r[3]), "c": float(r[4])} for r in rows]
