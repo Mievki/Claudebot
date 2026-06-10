@@ -1,0 +1,159 @@
+Always respond in English.
+
+You are helping me build and run a daily crypto trading bot (BTC/ETH, spot, long-only, no leverage). The full specification, validated parameters, validation results, code architecture, and known risks are in the project file PROJECT_KNOWLEDGE.md — read it before answering questions about the strategy or code.
+
+How I want you to work:
+- Be a critical reviewer, not a cheerleader. Actively look for overfitting, look-ahead bias, missing fees/slippage, and parameter drift. Push back when something is weak.
+- The strategy parameters are LOCKED and validated. Never change them silently in code. If a change would deviate from the validated spec, say so explicitly and explain the trade-off.
+- When writing or editing code, keep it minimal and match the existing architecture (config / indicators / strategy / okx_client / broker / storage / bot / status_cli). Indicator formulas MUST stay bit-for-bit identical to the backtest — flag any deviation.
+- Treat this as heading toward real money: paper → OKX demo → tiny live, no leverage, long-only, conservative sizing, safety gates first.
+- I work in PyCharm and may use Claude Code in the terminal for building. Give concrete, runnable answers and exact file paths/commands.
+- I am not a licensed financial advisor and neither are you; frame things as engineering and risk, not investment advice.
+
+
+Trading Bot — Project Knowledge
+This document is the single source of truth for the BTC/ETH daily trend-following
+trading bot. It records the validated strategy, the locked parameters, what has and
+hasn't been tested, the code architecture, and the known risks. Read this before
+proposing any change.
+
+1. What this project is
+A daily (1-day candle) trend-following bot for crypto, long-only, no leverage.
+It holds BTC (or ETH, run separately) when trend + momentum align, sizes the
+position by volatility targeting, and exits on an ATR trailing stop. The goal is
+to beat buy-and-hold on BOTH return and drawdown, not to maximise raw return.
+Capital base for sizing/backtests: EUR 1,000.
+
+2. The strategy (exact rules)
+Run once per day, shortly after the daily candle closes (00:00 UTC).
+ENTRY (only when flat):
+
+close > TEMA(120)  AND
+CMO(14) > 10
+Position size = volatility-targeted fraction of equity (see below), set ONCE at
+entry and held for the whole trade. No daily rebalancing.
+
+EXIT (only when in position):
+
+ATR trailing stop. Stop = highest_close_since_entry - 3.5 * ATR(14).
+The stop only ratchets up, never down.
+Exit when close <= stop.
+
+POSITION SIZING (volatility targeting):
+
+vol_ann = realized_vol_30d * sqrt(365)  (std of daily returns, annualised)
+fraction = clip(0.40 / vol_ann, 0.10, 1.00)
+0.40 is the target-vol level. Cap at 1.00 means NO leverage. Floor 0.10 keeps a
+minimum stake.
+Intuition: in high-vol crashes exposure shrinks (~33%), in calm trends it goes
+to 100%.
+
+EXECUTION ASSUMPTIONS (backtest):
+
+Fees 0.2% per side, slippage 0.1% on stop exits. These are conservative vs OKX
+spot taker fees, on purpose.
+
+
+3. LOCKED parameters
+These are validated. Do NOT change them silently in code. If a change is proposed,
+flag explicitly that it deviates from the validated spec and why.
+ParameterValueNotesAssetBTC, ETHspot, long-only, run separatelyTEMA length120chosen as best on the heatmapCMO window14CMO trigger> 10ATR window14ATR multiplier3.5trailing stop distanceVol window30 daysTarget vol0.400.30-0.35 is a defensible alternativeFraction cap[0.10, 1.0]1.0 = no leverage
+
+4. Validation results (what was actually tested)
+Optimisation objective throughout: Calmar (return / max drawdown), so drawdown is
+weighted explicitly — not raw PnL or Sharpe.
+BTC, TEMA_120, vol-target 40%, full period, with fees + slippage:
+
+Final ~EUR 30,246 | CAGR ~50% | Sharpe 1.32 | Calmar 1.43 | MDD -35.3% | 40 trades
+All-in reference: Sharpe 1.12 | Calmar 0.98 | MDD -51.5%
+-> vol-targeting dominates all-in: higher Sharpe/Calmar AND lower drawdown.
+
+Vol-targeting sweep (target_vol x vol_window):
+
+Broad green plateau across target 20-50%, all windows. Chosen 40% sits inside it,
+not on an isolated peak. 30% has marginally better Calmar (1.47) and lower MDD.
+Train/test (lock 40%/30d, IS 2018-2022 vs OOS 2023-2026):
+Sharpe OOS/IS 82%, Calmar OOS/IS 66% — both healthy (>60%).
+IS-optimal target = 30%, the immediate neighbour of 40% -> consistent, not a
+divergence. (A "NEE/verdacht" verdict in the notebook was a floating-point
+artefact in the check, not a real red flag.)
+
+Earlier robustness work (on TEMA_100, before switching to 120):
+
+TEMA x ATR heatmap: broad plateau (TEMA 80-180, ATR 3.0-4.0). Chosen cell ~5%
+above neighbour mean -> plateau, not peak.
+Train/test OOS/IS ~102% (Sharpe) and ~101% (Calmar) — exceptional generalisation.
+Bootstrap: 5%-CAGR -0.6%, loss probability 5.3%, 72.6% chance of beating B&H,
+daily block bootstrap 5%-Sharpe 0.41.
+Cross-asset: BTC/ETH/BNB/SOL/LINK all profitable on the same params (LINK had
+87% MDD, not used). Decision: trade BTC + ETH only.
+
+
+5. Known caveats and risk numbers (be honest about these)
+
+Vol-targeting params (40%, 30d) were tuned on the same history they were tested on
+— weaker than the TEMA/ATR validation. The REAL test is forward/live data.
+5% worst-case bootstrap max drawdown = -78.4%. Deeper than any single historical
+drawdown. Size live capital so this is a setback, not a catastrophe.
+BTC 2023-2026 was a favourable regime. No test in a prolonged sideways/bear market.
+Backtest executes signal + fill at the same daily close (slightly optimistic vs
+next-open).
+~40 trades is a small sample; bootstrap intervals are wide.
+The OkxBroker order/balance code has NOT been tested against the live OKX API yet
+(no keys/network during build). Expect to refine it on OKX demo first.
+
+
+6. Code architecture
+The core idea: identical bot logic for paper / demo / live; only the broker differs.
+tema-bot/
+  config.py        all settings via .env (code and secrets separated)
+  indicators.py    TEMA/CMO/ATR/realized_vol — MUST exactly match the backtest
+  strategy.py      pure decide() -> ENTER / EXIT / HOLD (no IO, unit-testable)
+  okx_client.py    OKX REST for SPOT: candles, ticker, balance, market order
+  broker.py        PaperBroker (local sim) and OkxBroker (demo/live)
+  storage.py       state.json (position + equity) + trades.csv
+  bot.py           orchestration: `once` (cron) / `run` (loop) / `stop`
+  status_cli.py    quick view of state + last trades
+Critical invariants:
+
+Indicator formulas in indicators.py are verified bit-for-bit identical to the
+backtest (TEMA via ewm adjust=False; CMO via rolling SUM; ATR via rolling MEAN;
+vol via pct_change rolling std). Changing a formula = trading a different system.
+strategy.decide() follows the backtest ordering: when in position, FIRST check
+exit against yesterday's stop, THEN ratchet the trailing stop for tomorrow.
+Bot is idempotent on last_bar_ts: it never trades twice on the same candle.
+Safety gates: OkxBroker refuses live unless ALLOW_LIVE=1, and stops if equity
+exceeds MAX_LIVE_EQUITY.
+
+Candles: use OKX bar 1Dutc; only act on CONFIRMED (closed) candles (confirm==1).
+
+7. Deployment plan (phased, safety first)
+
+PAPER (local, this machine): MODE=paper. Local simulation using real OKX prices,
+sends no orders. Verify decisions/logs make sense. No API key needed.
+OKX DEMO: MODE=demo + demo API keys (trade-only rights, no withdraw, IP-locked).
+Real API, fake money, via x-simulated-trading. Run for weeks.
+LIVE tiny: MODE=live, ALLOW_LIVE=1, MAX_LIVE_EQUITY low (e.g. 50-100). Real money,
+smallest size, watch closely. Scale only after it behaves.
+
+Hosting (always-online):
+
+Recommended: small VPS + systemd timer running bot.py once daily at 00:02 UTC.
+If it crashes, it just runs again tomorrow — more robust than a long process.
+Hetzner CX23 ~EUR 3.49/mo. No credit card needed: pays via SEPA direct debit or
+PayPal (EUR account). Data stays in the EU.
+Oracle Cloud free tier (ARM, 4 cores/24GB, permanently free) was considered but
+REQUIRES a credit card for signup — not available to this user.
+Raspberry Pi at home is a no-cloud alternative but less reliable (power/internet).
+Docker compose (loop mode, restart: unless-stopped) is a fine alternative to
+systemd but slightly heavier; not required for 4 dependencies.
+
+
+8. How to work in this project
+
+Be a critical reviewer, not a cheerleader. Actively look for overfitting,
+look-ahead bias, missing costs, and parameter drift.
+When writing or changing code, keep it minimal and match the architecture above.
+Treat this as heading toward real money: paper -> demo -> live, no leverage,
+long-only, conservative sizing.
+The user works in PyCharm and may use Claude Code in the terminal for building.

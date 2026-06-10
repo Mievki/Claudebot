@@ -1,0 +1,17 @@
+# Secrets — never commit
+.env
+*.env
+!.env.example
+
+# Runtime state (position, equity, trade log, lockfiles)
+tema-bot/data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# IDE / notebooks
+.idea/
+.ipynb_checkpoints/

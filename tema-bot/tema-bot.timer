@@ -1,0 +1,9 @@
+[Unit]
+Description=Run TEMA bot daily after the UTC candle close
+
+[Timer]
+OnCalendar=*-*-* 00:02:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
