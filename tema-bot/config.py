@@ -15,7 +15,8 @@ VOL_WIN     = int(os.getenv("VOL_WIN", "30"))
 TARGET_VOL  = float(os.getenv("TARGET_VOL", "0.40"))   # vol-targeting niveau
 F_MIN       = float(os.getenv("F_MIN", "0.10"))
 F_MAX       = float(os.getenv("F_MAX", "1.0"))         # 1.0 = GEEN hefboom
-HIST_BARS   = int(os.getenv("HIST_BARS", "400"))       # genoeg voor TEMA120-warmup
+HIST_BARS   = int(os.getenv("HIST_BARS", "1200"))      # TEMA120-warmup: ewm is startpunt-
+# afhankelijk; tests/test_parity.py meet: 400 bars -> $118 TEMA-fout, 1200 -> <$0.001.
 
 # ---- Uitvoering ----
 # paper = lokale simulatie met echte prijzen (geen orders naar OKX)
@@ -29,7 +30,9 @@ ALLOW_LIVE   = os.getenv("ALLOW_LIVE", "0") == "1"          # veiligheidsslot
 MAX_LIVE_EQUITY = float(os.getenv("MAX_LIVE_EQUITY", "100"))# harde cap op live-inzet
 
 # ---- Paden ----
-DATA_DIR    = os.getenv("DATA_DIR", "./data")
+# Default naast deze module (niet cwd), zodat bot/tests/systemd dezelfde data zien.
+_HERE       = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR    = os.getenv("DATA_DIR", os.path.join(_HERE, "data"))
 STATE_JSON  = os.path.join(DATA_DIR, "state.json")
 TRADES_CSV  = os.path.join(DATA_DIR, "trades.csv")
 STOP_FLAG   = os.path.join(DATA_DIR, "stop.flag")
