@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 import config as C
 import storage as S
 import okx_client as okx
+import telegram_bot as tg
 from strategy import Position, decide
 from broker import make_broker
 
@@ -20,6 +21,17 @@ def fetch_history():
     return closes, highs, lows, rows[-1]["ts"]
 
 def run_once():
+    """Eén dagelijkse beslissing. State-lock omdat de Telegram-listener
+       (apart proces) ook in state.json schrijft. Fouten gaan naar Telegram
+       en daarna omhoog (systemd ziet zo een gefaalde run)."""
+    try:
+        with S.locked():
+            _run_once()
+    except Exception as e:
+        tg.notify(f"FOUT in tema-bot ({C.MODE}): {e}")
+        raise
+
+def _run_once():
     okx.periodic_time_sync()
     st = S.load_state()
     pos = Position.from_dict(st.get("position"))
@@ -37,7 +49,8 @@ def run_once():
     act = decision["action"]
     # Kill-switch (Telegram /off of /stop): geen NIEUWE entries; een open positie
     # behoudt haar trailing stop, dus EXIT blijft altijd toegestaan.
-    if act == "ENTER" and not st.get("trading_enabled", True):
+    suppressed = act == "ENTER" and not st.get("trading_enabled", True)
+    if suppressed:
         act = "HOLD"
         decision = {**decision, "action": "HOLD",
                     "reason": "ENTER-signaal onderdrukt: trading staat uit (/on om te hervatten)"}
@@ -47,19 +60,30 @@ def run_once():
 
     log = {"ts_utc": S.now_iso(), "action": act, "price": f"{price:.2f}", "reason": decision["reason"]}
 
+    msg = None
     if act == "ENTER":
         usdt = eq_before * decision["fraction"]
         units, fill, fee = broker.buy(usdt, price)
         pos.in_position = True
         pos.entry_price = fill
-        pos.units = units if units is not None else pos.units
+        pos.units = units
         pos.highest = price
         pos.stop = decision["stop"]
         log.update({"units": units, "usdt": f"{usdt:.2f}", "fee": f"{fee:.2f}", "stop": f"{pos.stop:.2f}"})
+        msg = (f"ENTER {C.INST_ID} ({C.MODE})\n"
+               f"prijs: {fill:.2f} | units: {units:.8f}\n"
+               f"inzet: {usdt:.2f} USDT ({decision['fraction']*100:.0f}% van equity)\n"
+               f"stop: {pos.stop:.2f}\nreden: {decision['reason']}")
     elif act == "EXIT":
         units, fill, fee = broker.sell_all(price)
         pos = Position()  # terug naar flat
         log.update({"units": units, "fee": f"{fee:.2f}"})
+        msg = (f"EXIT {C.INST_ID} ({C.MODE})\n"
+               f"prijs: {fill:.2f} | units: {units:.8f} | fee: {fee:.2f}\n"
+               f"reden: {decision['reason']}")
+    elif suppressed:
+        msg = (f"ENTER-signaal ONDERDRUKT {C.INST_ID} ({C.MODE})\n"
+               f"prijs: {price:.2f}\ntrading staat UIT — /on om te hervatten")
 
     eq_after = broker.equity(price)
     log["equity_after"] = f"{eq_after:.2f}"
@@ -72,6 +96,8 @@ def run_once():
     S.save_state(st)
     if act in ("ENTER", "EXIT"):
         S.log_trade(log)
+    if msg:
+        tg.notify(f"{msg}\nequity: {eq_after:.2f} USDT")
     print(f"[STATE] equity={eq_after:.2f} in_position={pos.in_position} stop={pos.stop:.0f}")
 
 def next_daily_boundary():

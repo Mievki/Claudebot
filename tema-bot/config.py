@@ -34,6 +34,10 @@ PAPER_SLIP   = float(os.getenv("PAPER_SLIP", "0.001"))     # 0,1% slippage — z
 ALLOW_LIVE   = os.getenv("ALLOW_LIVE", "0") == "1"          # veiligheidsslot
 MAX_LIVE_EQUITY = float(os.getenv("MAX_LIVE_EQUITY", "100"))# harde cap op live-inzet
 
+# ---- Telegram ----
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")    # van @BotFather
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")      # JOUW numerieke user-id (whitelist)
+
 # ---- Paden ----
 # Default naast deze module (niet cwd), zodat bot/tests/systemd dezelfde data zien.
 DATA_DIR    = os.getenv("DATA_DIR", os.path.join(_HERE, "data"))

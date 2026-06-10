@@ -1,7 +1,35 @@
 """State (JSON) + trade-log (CSV). Bewust simpel; CSV is direct in Excel/pandas te openen."""
-import os, json, csv
+import os, json, csv, time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import config as C
+
+@contextmanager
+def locked(timeout=60.0, stale_after=300.0):
+    """Bestands-lock rond lees+wijzig+schrijf van state.json: de dagelijkse job en
+       de Telegram-listener draaien als losse processen. Cross-platform (O_EXCL).
+       Een lock ouder dan `stale_after` (gecrasht proces) wordt overgenomen."""
+    lock = C.STATE_JSON + ".lock"
+    t0 = time.time()
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(lock) > stale_after:
+                    os.remove(lock); continue
+            except OSError:
+                pass
+            if time.time() - t0 > timeout:
+                raise RuntimeError(f"state-lock niet verkregen binnen {timeout}s: {lock}")
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        try: os.remove(lock)
+        except OSError: pass
 
 def load_state():
     try:
