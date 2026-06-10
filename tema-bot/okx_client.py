@@ -104,13 +104,35 @@ def ticker(inst_id):
     d = _request("GET", "/api/v5/market/ticker", params={"instId": inst_id})
     return d[0] if d else {}
 
+def instrument(inst_id):
+    """Instrument-specs (minSz, lotSz, tickSz) voor correcte order-afronding."""
+    d = _request("GET", "/api/v5/public/instruments",
+                 params={"instType": "SPOT", "instId": inst_id})
+    return d[0] if d else {}
+
 # ---- Private (account + orders) ----
 def balance(ccy=None):
     params = {"ccy": ccy} if ccy else None
     return _request("GET", "/api/v5/account/balance", params=params, private=True)
 
 def place_spot_market(inst_id, side, sz, tgt_ccy):
-    """Market spot order. BUY: sz in USDT (tgt_ccy=quote_ccy). SELL: sz in BTC (tgt_ccy=base_ccy)."""
+    """Market spot order. BUY: sz in USDT (tgt_ccy=quote_ccy). SELL: sz in BTC (tgt_ccy=base_ccy).
+       Geeft de ordId terug."""
     data = {"instId": inst_id, "tdMode": "cash", "side": side,
             "ordType": "market", "sz": str(sz), "tgtCcy": tgt_ccy}
-    return _request("POST", "/api/v5/trade/order", data=data, private=True)
+    d = _request("POST", "/api/v5/trade/order", data=data, private=True)
+    if not d or str(d[0].get("sCode", "0")) not in ("0",):
+        raise RuntimeError(f"Order geweigerd: {d}")
+    return d[0]["ordId"]
+
+def order_detail(inst_id, ord_id):
+    """Status/details van een order (state: live|partially_filled|filled|canceled)."""
+    d = _request("GET", "/api/v5/trade/order",
+                 params={"instId": inst_id, "ordId": ord_id}, private=True)
+    return d[0] if d else {}
+
+def fills(inst_id, ord_id):
+    """Daadwerkelijke fills van een order. fillSz is ALTIJD in basis-ccy (BTC);
+       fee is negatief, in feeCcy (BTC bij koop, USDT bij verkoop)."""
+    return _request("GET", "/api/v5/trade/fills",
+                    params={"instId": inst_id, "ordId": ord_id}, private=True)
