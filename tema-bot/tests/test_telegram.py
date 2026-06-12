@@ -16,6 +16,7 @@ def tmp_state(monkeypatch, tmp_path):
     monkeypatch.setattr(C, "STATE_JSON", str(tmp_path / "state.json"))
     monkeypatch.setattr(C, "TRADES_CSV", str(tmp_path / "trades.csv"))
     monkeypatch.setattr(C, "TELEGRAM_CHAT_ID", "12345")
+    monkeypatch.setattr(C, "MODE", "paper")
     return tmp_path
 
 
